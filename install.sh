@@ -57,6 +57,11 @@ sudo chmod 644 "$AGENT"
 
 # Перезапуск агента в текущей сессии
 launchctl bootout "gui/$(id -u)/local.wgmenu" 2>/dev/null || true
+# bootout завершается асинхронно — ждём, пока сервис действительно выгрузится
+for _ in {1..50}; do
+	launchctl print "gui/$(id -u)/local.wgmenu" >/dev/null 2>&1 || break
+	sleep 0.1
+done
 launchctl bootstrap "gui/$(id -u)" "$AGENT"
 
 echo

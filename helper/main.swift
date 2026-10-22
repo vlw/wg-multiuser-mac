@@ -1,6 +1,6 @@
 // Привилегированный помощник WGMenu. Запускается через sudo по правилу из /etc/sudoers.d/wgmenu.
 //
-//   list                  имя<TAB>up|down для каждого /etc/wireguard/*.conf
+//   list                  имя<TAB>up|down<TAB>флаги (dns,inet или -) для каждого /etc/wireguard/*.conf
 //   caps                  admin | user — может ли вызывающий видеть ключи и менять PreUp/PostUp
 //   get <имя>             текст конфига (секреты скрыты, если вызывающий не администратор)
 //   stats <имя>           публичный ключ и, если туннель поднят, статистика `wg show dump`
@@ -177,7 +177,9 @@ case "list":
     for f in files.sorted() where f.hasSuffix(".conf") {
         let name = String(f.dropLast(5))
         guard isValidTunnelName(name) else { continue }
-        print("\(name)\t\(activeInterface(name) == nil ? "down" : "up")")
+        let cfg = WGConfig((try? String(contentsOfFile: confPath(name), encoding: .utf8)) ?? "")
+        let flags = [cfg.setsDNS ? "dns" : nil, cfg.routesAllTraffic ? "inet" : nil].compactMap { $0 }
+        print("\(name)\t\(activeInterface(name) == nil ? "down" : "up")\t\(flags.isEmpty ? "-" : flags.joined(separator: ","))")
     }
 
 case "caps":

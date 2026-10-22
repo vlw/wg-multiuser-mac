@@ -46,6 +46,8 @@ func offMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
 struct Tunnel: Identifiable, Hashable {
     let name: String
     var up: Bool
+    var setsDNS = false
+    var routesAllTraffic = false
     var id: String { name }
 }
 
@@ -120,7 +122,10 @@ final class TunnelStore: ObservableObject {
             listError = nil
             let fresh = r.out.split(separator: "\n").compactMap { line -> Tunnel? in
                 let f = line.split(separator: "\t")
-                return f.count == 2 ? Tunnel(name: String(f[0]), up: f[1] == "up") : nil
+                guard f.count >= 2 else { return nil }
+                let flags = f.count > 2 ? f[2].split(separator: ",") : []
+                return Tunnel(name: String(f[0]), up: f[1] == "up",
+                              setsDNS: flags.contains("dns"), routesAllTraffic: flags.contains("inet"))
             }
             if fresh != tunnels { tunnels = fresh }
         } else {

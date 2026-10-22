@@ -45,9 +45,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             menu.addItem(NSMenuItem(title: "Нет конфигов в /etc/wireguard", action: nil, keyEquivalent: ""))
         }
 
-        for t in store.tunnels {
+        let titles = store.tunnels.map { store.busy.contains($0.name) ? "\($0.name) …" : $0.name }
+        let nameColumn = titles.map(MenuBadges.nameWidth).max() ?? 0
+        for (t, title) in zip(store.tunnels, titles) {
             let busy = store.busy.contains(t.name)
-            let item = NSMenuItem(title: busy ? "\(t.name) …" : t.name, action: #selector(toggle(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: title, action: #selector(toggle(_:)), keyEquivalent: "")
+            item.attributedTitle = MenuBadges.title(title, dns: t.setsDNS, internet: t.routesAllTraffic,
+                                                    nameColumnWidth: nameColumn)
+            item.toolTip = [t.setsDNS ? dnsBadgeHelp : nil, t.routesAllTraffic ? internetBadgeHelp : nil]
+                .compactMap { $0 }.joined(separator: "\n")
             item.target = self
             item.representedObject = t.name
             item.state = t.up ? .on : .off

@@ -17,6 +17,8 @@ struct ManagerView: View {
                     HStack(spacing: 8) {
                         StatusDot(up: t.up, busy: store.busy.contains(t.name))
                         Text(t.name)
+                        Spacer(minLength: 4)
+                        TunnelBadges(dns: t.setsDNS, internet: t.routesAllTraffic)
                     }
                     .tag(t.name)
                     .contextMenu {
@@ -246,7 +248,11 @@ struct TunnelDetail: View {
             if let mtu = iface?.value("MTU") { row("MTU", mtu) }
             if up, let i = stats?.iface { row("Интерфейс", i) }
         } header: {
-            Text("Интерфейс: \(name)").font(.headline)
+            HStack {
+                Text("Интерфейс: \(name)").font(.headline)
+                Spacer()
+                if let cfg { TunnelBadges(dns: cfg.setsDNS, internet: cfg.routesAllTraffic) }
+            }
         }
     }
 
@@ -298,11 +304,10 @@ struct TunnelDetail: View {
 
     private func configNotes(_ cfg: WGConfig) -> [String] {
         var notes = cfg.errors
-        if !(cfg.interface?.list("DNS").isEmpty ?? true) {
+        if cfg.setsDNS {
             notes.append("Задан DNS: wg-quick заменит системный DNS, и при нескольких активных туннелях они будут мешать друг другу.")
         }
-        let all = cfg.peers.flatMap { $0.list("AllowedIPs") }
-        if all.contains("0.0.0.0/0") || all.contains("::/0") {
+        if cfg.routesAllTraffic {
             notes.append("AllowedIPs содержит 0.0.0.0/0 — через этот туннель пойдёт весь трафик.")
         }
         return notes

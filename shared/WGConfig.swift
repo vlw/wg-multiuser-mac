@@ -43,6 +43,16 @@ struct WGConfig {
     var interface: WGSection? { sections.first { $0.name.lowercased() == "interface" } }
     var peers: [WGSection] { sections.filter { $0.name.lowercased() == "peer" } }
 
+    /// wg-quick заменит системный DNS.
+    var setsDNS: Bool { !(interface?.list("DNS").isEmpty ?? true) }
+
+    /// Через туннель идёт весь трафик: 0.0.0.0/0 (или ::/0), в том числе в виде пары половинок /1.
+    var routesAllTraffic: Bool {
+        let ips = Set(peers.flatMap { $0.list("AllowedIPs") })
+        return ips.contains("0.0.0.0/0") || ips.contains("::/0")
+            || ips.isSuperset(of: ["0.0.0.0/1", "128.0.0.0/1"]) || ips.isSuperset(of: ["::/1", "8000::/1"])
+    }
+
     init(_ text: String) {
         for (i, raw) in text.components(separatedBy: "\n").enumerated() {
             let n = i + 1
