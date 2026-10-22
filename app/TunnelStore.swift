@@ -105,21 +105,48 @@ final class TunnelStore: ObservableObject {
     init() {
         isAdmin = helper(["caps"]).out.hasPrefix("admin")
         reload()
-        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        // Состояние спрашиваем только у помощника: файлы в /var/run/wireguard wireguard-go создаёт
+        // с правами 0400, без root их не прочитать. Один источник — значок не мигает.
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshStatus() }
-        }
-        Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reload() }
         }
     }
 
     var anyUp: Bool { tunnels.contains { $0.up } }
 
-    /// Полный список через помощника (видит /etc/wireguard). Быстро, можно с главного потока.
+    /// Список и состояние через помощника. Быстро, можно с главного потока (нужно при открытии меню).
     func reload() {
-        let r = helper(["list"])
+        let gen = nextRequest()
+        apply(helper(["list"]), gen)
+    }
+
+    /// То же в фоне — для периодического опроса. Так видно и действия других пользователей.
+    func refreshStatus() {
+        guard !refreshing else { return }
+        refreshing = true
+        let gen = nextRequest()
+        Task {
+            let r = await offMain { helper(["list"]) }
+            refreshing = false
+            apply(r, gen)
+        }
+    }
+
+    private var refreshing = false
+    private var requested = 0
+    private var applied = 0
+
+    private func nextRequest() -> Int {
+        requested += 1
+        return requested
+    }
+
+    /// Применяет ответ, только если он не старше уже применённого: фоновый опрос,
+    /// начатый до переключения туннеля, не должен вернуть устаревшее состояние.
+    private func apply(_ r: CommandResult, _ gen: Int) {
+        guard gen > applied else { return }
+        applied = gen
         if r.ok {
-            listError = nil
             let fresh = r.out.split(separator: "\n").compactMap { line -> Tunnel? in
                 let f = line.split(separator: "\t")
                 guard f.count >= 2 else { return nil }
@@ -128,21 +155,11 @@ final class TunnelStore: ObservableObject {
                               setsDNS: flags.contains("dns"), routesAllTraffic: flags.contains("inet"))
             }
             if fresh != tunnels { tunnels = fresh }
+            listError = nil
         } else {
             listError = r.message.isEmpty ? "Помощник недоступен" : r.message
         }
         onChange?()
-    }
-
-    /// Состояние без sudo: /var/run/wireguard доступен на чтение всем. Так видно действия других пользователей.
-    func refreshStatus() {
-        let active = activeTunnelNames()
-        var changed = tunnels
-        for i in changed.indices { changed[i].up = active.contains(changed[i].name) }
-        if changed != tunnels {
-            tunnels = changed
-            onChange?()
-        }
     }
 
     func isUp(_ name: String) -> Bool { tunnels.first { $0.name == name }?.up ?? false }
@@ -153,8 +170,7 @@ final class TunnelStore: ObservableObject {
         onChange?()
         let r = await offMain { helper([up ? "up" : "down", name]) }
         busy.remove(name)
-        refreshStatus()
-        onChange?()
+        reload()
         return r.ok ? nil : (r.message.isEmpty ? "Ошибка wg-quick" : r.message)
     }
 
@@ -196,18 +212,6 @@ final class TunnelStore: ObservableObject {
 struct HelperError: Error {
     let message: String
     init(_ m: String) { message = m }
-}
-
-func activeTunnelNames() -> Set<String> {
-    let dir = "/var/run/wireguard"
-    guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return [] }
-    var result = Set<String>()
-    for f in files where f.hasSuffix(".name") {
-        guard let iface = try? String(contentsOfFile: "\(dir)/\(f)", encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines), !iface.isEmpty else { continue }
-        if FileManager.default.fileExists(atPath: "\(dir)/\(iface).sock") { result.insert(String(f.dropLast(5))) }
-    }
-    return result
 }
 
 /// Публичный ключ из приватного — `wg pubkey` работает без root.
