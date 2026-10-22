@@ -15,8 +15,8 @@ echo "==> Сборка"
 BUILD=$(mktemp -d)
 mkdir -p "$BUILD/WGMenu.app/Contents/MacOS"
 cp app/Info.plist "$BUILD/WGMenu.app/Contents/"
-swiftc -swift-version 5 -O shared/*.swift helper/main.swift -o "$BUILD/wgmenu-helper"
-swiftc -swift-version 5 -O shared/*.swift app/*.swift -o "$BUILD/WGMenu.app/Contents/MacOS/WGMenu" \
+swiftc -swift-version 5 -O -target "$(uname -m)-apple-macos26.0" shared/*.swift helper/main.swift -o "$BUILD/wgmenu-helper"
+swiftc -swift-version 5 -O -target "$(uname -m)-apple-macos26.0" shared/*.swift app/*.swift -o "$BUILD/WGMenu.app/Contents/MacOS/WGMenu" \
 	-framework AppKit -framework SwiftUI
 codesign --force --sign - "$BUILD/wgmenu-helper"
 codesign --force --sign - "$BUILD/WGMenu.app"

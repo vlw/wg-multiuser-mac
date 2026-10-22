@@ -18,6 +18,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.delegate = self
         statusItem.menu = menu
         updateIcon()
+        if let prefix = ProcessInfo.processInfo.environment["WGMENU_SNAPSHOT"] { snapshotAndExit(prefix) }
+    }
+
+    /// Отладка вёрстки: WGMENU_SNAPSHOT=/путь/префикс — открыть окна, сохранить их PNG и выйти.
+    /// Окно рисует само себя, разрешение на запись экрана не нужно (стекло при этом не отрисовывается).
+    private func snapshotAndExit(_ prefix: String) {
+        showManager()
+        showLog(filter: "")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            for (w, name) in [(self.managerWindow, "manager"), (self.logWindow, "log")] {
+                guard let view = w?.contentView?.superview ?? w?.contentView,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                func tables(_ v: NSView) -> [NSTableView] { (v as? NSTableView).map { [$0] } ?? v.subviews.flatMap(tables) }
+                print("\(name): строк в списках:", tables(view).map(\.numberOfRows))
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(prefix)-\(name).png"))
+            }
+            exit(0)
+        }
     }
 
     // MARK: Значок и меню в трее
@@ -97,8 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     @objc func showManager() {
         if managerWindow == nil {
-            let host = NSHostingController(rootView: ManagerView().environmentObject(store))
-            managerWindow = makeWindow(host, title: "WireGuard — туннели", autosave: "WGMenuManager", size: NSSize(width: 860, height: 580))
+            managerWindow = makeWindow(ManagerView().environmentObject(store), title: "WireGuard — туннели",
+                                       autosave: "WGMenuManager", size: NSSize(width: 900, height: 600))
         }
         present(managerWindow!)
     }
@@ -108,16 +127,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     func showLog(filter: String) {
         logFilter.text = filter
         if logWindow == nil {
-            let host = NSHostingController(rootView: LogContainer(filter: logFilter).environmentObject(store))
-            logWindow = makeWindow(host, title: "WireGuard — журнал", autosave: "WGMenuLog", size: NSSize(width: 760, height: 480))
+            logWindow = makeWindow(LogContainer(filter: logFilter).environmentObject(store), title: "WireGuard — журнал",
+                                   autosave: "WGMenuLog", size: NSSize(width: 780, height: 500))
         }
         present(logWindow!)
     }
 
-    private func makeWindow(_ host: NSViewController, title: String, autosave: String, size: NSSize) -> NSWindow {
+    /// Окно в стиле Liquid Glass: панель инструментов и заголовок берутся из SwiftUI (.toolbar, .navigationTitle),
+    /// контент заходит под заголовок, чтобы боковая панель и панель инструментов были стеклянными.
+    private func makeWindow<V: View>(_ root: V, title: String, autosave: String, size: NSSize) -> NSWindow {
+        let host = NSHostingController(rootView: root)
+        host.sceneBridgingOptions = [.toolbars, .title]
         let w = NSWindow(contentViewController: host)
         w.title = title
-        w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        w.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        w.toolbarStyle = .unified
         w.setContentSize(size)
         w.isReleasedWhenClosed = false
         w.delegate = self

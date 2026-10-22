@@ -27,26 +27,19 @@ struct ManagerView: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                HStack {
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+            .toolbar {
+                ToolbarItem {
                     Menu {
-                        Button("Новый пустой туннель") { newTunnel() }
-                        Button("Импорт из файла (.conf или .zip)…") { importFiles() }
+                        Button("Новый пустой туннель", systemImage: "square.and.pencil") { newTunnel() }
+                        Button("Импорт из файла (.conf или .zip)…", systemImage: "square.and.arrow.down") { importFiles() }
                     } label: {
-                        Image(systemName: "plus")
+                        Label("Добавить", systemImage: "plus")
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
                     .help("Добавить туннель")
-                    Spacer()
-                    Button { store.openLog?("") } label: { Image(systemName: "doc.text.magnifyingglass") }
-                        .buttonStyle(.borderless)
-                        .help("Журнал")
                 }
-                .padding(10)
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220)
         } detail: {
             if let text = draft {
                 TunnelEditor(oldName: nil, name: "", text: text, isUp: false, knownPublicKey: nil) { saved in
@@ -61,12 +54,23 @@ struct ManagerView: View {
                                        systemImage: "network")
             }
         }
+        .navigationSubtitle(subtitle)
         .onChange(of: selection) { _, new in if new != nil { draft = nil } }
         .onAppear { if selection == nil { selection = store.tunnels.first?.name } }
         .alert(message ?? "", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK") { message = nil }
         }
         .frame(minWidth: 760, minHeight: 520)
+    }
+
+    private var subtitle: String {
+        if draft != nil { return "Новый туннель" }
+        guard let name = selection else {
+            let n = store.tunnels.filter(\.up).count
+            return n == 0 ? "" : "Активных: \(n)"
+        }
+        let state = store.busy.contains(name) ? "переключается…" : store.isUp(name) ? "активен" : "неактивен"
+        return "\(name) — \(state)"
     }
 
     private func toggle(_ t: Tunnel) {
@@ -190,31 +194,43 @@ struct TunnelDetail: View {
     }
 
     @ViewBuilder private var details: some View {
-        VStack(spacing: 0) {
-            Form {
-                if let loadError {
-                    Section { Label(loadError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-                }
-                interfaceSection
-                if let cfg {
-                    ForEach(Array(cfg.peers.enumerated()), id: \.offset) { i, peer in
-                        peerSection(peer, index: i, total: cfg.peers.count)
-                    }
-                    warningsSection(cfg)
-                }
+        Form {
+            if let loadError {
+                Section { Label(loadError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
             }
-            .formStyle(.grouped)
-
-            Divider()
-            HStack {
-                Button("Изменить") { editing = true }
+            interfaceSection
+            if let cfg {
+                ForEach(Array(cfg.peers.enumerated()), id: \.offset) { i, peer in
+                    peerSection(peer, index: i, total: cfg.peers.count)
+                }
+                warningsSection(cfg)
+            }
+        }
+        .formStyle(.grouped)
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    Task { if let err = await store.setActive(name, !up) { actionError = err } }
+                } label: {
+                    Label(up ? "Деактивировать" : "Активировать", systemImage: up ? "stop.fill" : "play.fill")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(up ? .red : .green)
+                .disabled(busy)
+                .help(up ? "Выключить туннель" : "Включить туннель")
+            }
+            ToolbarSpacer(.fixed)
+            ToolbarItemGroup {
+                Button("Изменить", systemImage: "pencil") { editing = true }
                     .disabled(configText == nil || busy)
-                Button("Журнал") { store.openLog?(name) }
-                Spacer()
-                Button("Удалить…", role: .destructive) { confirmDelete = true }
+                    .help("Изменить конфиг")
+                Button("Журнал", systemImage: "doc.text.magnifyingglass") { store.openLog?(name) }
+                    .help("Журнал этого туннеля")
+                Button("Удалить…", systemImage: "trash", role: .destructive) { confirmDelete = true }
                     .disabled(busy)
+                    .help("Удалить туннель")
             }
-            .padding(12)
         }
         .confirmationDialog("Удалить туннель «\(name)»?", isPresented: $confirmDelete) {
             Button("Удалить", role: .destructive) {
@@ -232,14 +248,14 @@ struct TunnelDetail: View {
         let iface = cfg?.interface
         return Section {
             LabeledContent("Статус") {
-                HStack(spacing: 10) {
+                HStack(spacing: 7) {
                     StatusDot(up: up, busy: busy)
                     Text(busy ? (up ? "Отключается…" : "Подключается…") : up ? "Активен" : "Неактивен")
-                    Button(up ? "Деактивировать" : "Активировать") {
-                        Task { if let err = await store.setActive(name, !up) { actionError = err } }
-                    }
-                    .disabled(busy)
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(Capsule().fill((busy ? Color.yellow : up ? Color.green : Color.secondary).opacity(0.15)))
+                .animation(.smooth, value: up)
             }
             if let pk = stats?.publicKey { row("Публичный ключ", pk, mono: true) }
             if let port = stats?.listenPort ?? iface?.value("ListenPort") { row("Порт", port) }
@@ -369,7 +385,6 @@ struct TunnelEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(oldName == nil ? "Новый туннель" : "Изменение туннеля").font(.title3.bold())
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 GridRow {
                     Text("Имя:").foregroundStyle(.secondary)
@@ -383,7 +398,8 @@ struct TunnelEditor: View {
 
             ConfigEditor(text: $text)
                 .frame(minHeight: 240)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+                .clipShape(.rect(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
 
             VStack(alignment: .leading, spacing: 4) {
                 if let nameError { problem(nameError) }
@@ -396,18 +412,22 @@ struct TunnelEditor: View {
                 if isUp { note("Туннель активен — после сохранения он будет перезапущен.") }
             }
             .font(.callout)
-
-            HStack {
-                Spacer()
+        }
+        .padding(20)
+        .navigationSubtitle(oldName == nil ? "" : "Изменение конфига")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
                 Button("Отменить") { onDone(nil) }
                     .keyboardShortcut(.cancelAction)
-                Button(saving ? "Сохранение…" : "Сохранить") { save() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(saving ? "Сохранение…" : "Сохранить", systemImage: "checkmark") { save() }
+                    .labelStyle(.titleAndIcon)
                     .keyboardShortcut("s", modifiers: .command)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .disabled(saving || nameError != nil || !cfg.errors.isEmpty)
             }
         }
-        .padding(16)
         .onAppear { updatePubkey() }
         .onChange(of: privateKey) { updatePubkey() }
     }
@@ -457,16 +477,17 @@ struct LogView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                TextField("Фильтр (имя туннеля, пользователь, ОШИБКА…)", text: $filter)
-                    .textFieldStyle(.roundedBorder)
-                Button("Обновить") { Task { text = await store.log() } }
+        ConfigEditor(text: .constant(shown.isEmpty ? "Записей нет" : shown), editable: false, highlight: false, scrollToEnd: true)
+            .navigationTitle("Журнал")
+            .navigationSubtitle(filter.isEmpty ? "" : "Фильтр: \(filter)")
+            .searchable(text: $filter, placement: .toolbar, prompt: "Туннель, пользователь, ОШИБКА…")
+            .toolbar {
+                ToolbarItem {
+                    Button("Обновить", systemImage: "arrow.clockwise") { Task { text = await store.log() } }
+                        .help("Обновить журнал")
+                }
             }
-            .padding(10)
-            ConfigEditor(text: .constant(shown.isEmpty ? "Записей нет" : shown), editable: false, highlight: false, scrollToEnd: true)
-        }
-        .frame(minWidth: 640, minHeight: 400)
+            .frame(minWidth: 640, minHeight: 400)
         .task {
             while !Task.isCancelled {
                 text = await store.log()

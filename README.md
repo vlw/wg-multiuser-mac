@@ -19,7 +19,7 @@
 
 ## Требования
 
-- macOS 14 или новее.
+- macOS 26 (Tahoe) или новее: интерфейс построен на Liquid Glass.
 - [Homebrew](https://brew.sh) и `wireguard-tools`:
   ```bash
   brew install wireguard-tools
